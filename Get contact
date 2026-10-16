@@ -62,7 +62,7 @@
 
 <script>
   // ====== PASTE DI SINI ======
-  const SUPABASE_URL = 'https://hndbhpefdiylazsrvepv.supabase.co/rest/v1/';
+  const SUPABASE_URL = 'https://hndbhpefdiylazsrvepv.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_9utQcYFhdAEGNYCg8wDlGw_3GNXERgZ';
   // ===========================
 
