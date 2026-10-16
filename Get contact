@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cek Nomor</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --text:#1d2330; --muted:#6b7280; --accent:#2563eb; --line:#e5e7eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:560px; margin:0 auto; padding:32px 16px; }
+  h1 { margin:0 0 4px; font-size:28px; }
+  p.sub { margin:0 0 24px; color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:16px; }
+  h2 { margin:0 0 12px; font-size:18px; }
+  input, select, textarea, button { width:100%; font:inherit; padding:10px 12px; border-radius:8px; border:1px solid var(--line); margin-bottom:10px; }
+  button { background:var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }
+  button.secondary { background:#fff; color:var(--accent); border:1px solid var(--accent); }
+  .hasil-item { border-top:1px solid var(--line); padding:10px 0; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:13px; font-weight:600; }
+  .spam { background:#fef3c7; color:#92400e; } .penipuan { background:#fee2e2; color:#991b1b; }
+  .telemarketing { background:#e0e7ff; color:#3730a3; } .aman { background:#dcfce7; color:#166534; }
+  .muted { color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cek Nomor</h1>
+  <p class="sub">Cari tahu apakah sebuah nomor pernah dilaporkan sebagai spam atau penipuan.</p>
+
+  <div class="card">
+    <h2>Cari nomor</h2>
+    <input id="cariNomor" type="tel" placeholder="contoh: 081234567890">
+    <button id="btnCari">Cari</button>
+    <div id="hasil"></div>
+  </div>
+
+  <div class="card" id="kartuLogin">
+    <h2>Masuk untuk melapor</h2>
+    <input id="email" type="email" placeholder="email kamu">
+    <button id="btnLogin">Kirim link login ke email</button>
+    <p class="muted" id="infoLogin"></p>
+  </div>
+
+  <div class="card" id="kartuLapor" style="display:none">
+    <h2>Laporkan nomor</h2>
+    <p class="muted" id="infoUser"></p>
+    <input id="laporNomor" type="tel" placeholder="nomor yang dilaporkan">
+    <select id="kategori">
+      <option value="spam">Spam</option>
+      <option value="penipuan">Penipuan</option>
+      <option value="telemarketing">Telemarketing</option>
+      <option value="aman">Aman</option>
+    </select>
+    <textarea id="catatan" rows="3" placeholder="catatan singkat (opsional)"></textarea>
+    <button id="btnLapor">Kirim laporan</button>
+    <button id="btnLogout" class="secondary">Keluar</button>
+    <p class="muted" id="infoLapor"></p>
+  </div>
+</main>
+
+<script>
+  // ====== PASTE DI SINI ======
+  const SUPABASE_URL = 'https://hndbhpefdiylazsrvepv.supabase.co/rest/v1/';
+  const SUPABASE_KEY = 'sb_publishable_9utQcYFhdAEGNYCg8wDlGw_3GNXERgZ';
+  // ===========================
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const $ = (id) => document.getElementById(id);
+
+  // Samakan format nomor: 0812..., +62812..., 62812... -> 62812...
+  function rapikan(n) {
+    let d = (n || '').replace(/\D/g, '');
+    if (d.startsWith('0')) d = '62' + d.slice(1);
+    return d;
+  }
+
+  $('btnCari').onclick = async () => {
+    const nomor = rapikan($('cariNomor').value);
+    if (!nomor) return;
+    $('hasil').innerHTML = '<p class="muted">Mencari...</p>';
+    const { data, error } = await db.from('laporan_nomor')
+      .select('kategori, catatan, dibuat_pada')
+      .eq('nomor', nomor)
+      .order('dibuat_pada', { ascending: false });
+    if (error) { $('hasil').innerHTML = '<p class="muted">Gagal: ' + error.message + '</p>'; return; }
+    if (!data.length) { $('hasil').innerHTML = '<p class="muted">Belum ada laporan untuk nomor ini.</p>'; return; }
+    $('hasil').innerHTML = '<p class="muted">' + data.length + ' laporan ditemukan</p>' + data.map(r =>
+      '<div class="hasil-item"><span class="badge ' + r.kategori + '">' + r.kategori + '</span> ' +
+      '<span class="muted">' + new Date(r.dibuat_pada).toLocaleDateString('id-ID') + '</span>' +
+      (r.catatan ? '<div>' + r.catatan.replace(/</g, '&lt;') + '</div>' : '') + '</div>'
+    ).join('');
+  };
+
+  $('btnLogin').onclick = async () => {
+    const email = $('email').value.trim();
+    if (!email) return;
+    const { error } = await db.auth.signInWithOtp({
+      email, options: { emailRedirectTo: window.location.href.split('#')[0] }
+    });
+    $('infoLogin').textContent = error ? 'Gagal: ' + error.message : 'Cek email kamu, lalu klik link login-nya.';
+  };
+
+  $('btnLapor').onclick = async () => {
+    const nomor = rapikan($('laporNomor').value);
+    if (!nomor) return;
+    const { error } = await db.from('laporan_nomor').insert({
+      nomor, kategori: $('kategori').value, catatan: $('catatan').value.trim() || null
+    });
+    $('infoLapor').textContent = error ? 'Gagal: ' + error.message : 'Terima kasih, laporan tersimpan.';
+    if (!error) { $('laporNomor').value = ''; $('catatan').value = ''; }
+  };
+
+  $('btnLogout').onclick = () => db.auth.signOut();
+
+  db.auth.onAuthStateChange((_e, session) => {
+    const masuk = !!session;
+    $('kartuLogin').style.display = masuk ? 'none' : 'block';
+    $('kartuLapor').style.display = masuk ? 'block' : 'none';
+    if (masuk) $('infoUser').textContent = 'Masuk sebagai ' + session.user.email;
+  });
+</script>
+</body>
+</html>
