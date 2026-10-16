@@ -36,6 +36,13 @@
     <div id="hasil"></div>
   </div>
 
+  <div class="card" id="kartuKontak">
+    <h2>Cek semua kontakku</h2>
+    <p class="muted">Pilih kontak dari HP-mu, lalu nomornya dicocokkan dengan daftar laporan. Nama kontak tidak dikirim dan tidak disimpan di mana pun.</p>
+    <button id="btnKontak">Pilih kontak untuk dicek</button>
+    <div id="hasilKontak"></div>
+  </div>
+
   <div class="card" id="kartuLogin">
     <h2>Masuk untuk melapor</h2>
     <input id="email" type="email" placeholder="email kamu">
@@ -91,6 +98,73 @@
       '<span class="muted">' + new Date(r.dibuat_pada).toLocaleDateString('id-ID') + '</span>' +
       (r.catatan ? '<div>' + r.catatan.replace(/</g, '&lt;') + '</div>' : '') + '</div>'
     ).join('');
+  };
+
+  // ====== CEK SEMUA KONTAKKU ======
+  // Contact Picker hanya tersedia di Chrome Android
+  const bisaPilihKontak = 'contacts' in navigator && 'ContactsManager' in window;
+  if (!bisaPilihKontak) {
+    $('btnKontak').disabled = true;
+    $('btnKontak').style.opacity = '0.5';
+    $('hasilKontak').innerHTML = '<p class="muted">Fitur ini hanya bisa dipakai di Chrome pada HP Android.</p>';
+  }
+
+  const aman = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  $('btnKontak').onclick = async () => {
+    let kontak;
+    try {
+      kontak = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+    } catch (e) {
+      $('hasilKontak').innerHTML = '<p class="muted">Pemilihan kontak dibatalkan.</p>';
+      return;
+    }
+    if (!kontak || !kontak.length) return;
+
+    // Nama hanya dipakai di browser ini untuk menampilkan hasil, tidak dikirim
+    const namaPerNomor = {};
+    kontak.forEach(k => (k.tel || []).forEach(t => {
+      const n = rapikan(t);
+      if (n.length >= 8 && !namaPerNomor[n]) namaPerNomor[n] = (k.name && k.name[0]) || 'Tanpa nama';
+    }));
+    const daftarNomor = Object.keys(namaPerNomor);
+    if (!daftarNomor.length) {
+      $('hasilKontak').innerHTML = '<p class="muted">Kontak yang dipilih tidak punya nomor telepon.</p>';
+      return;
+    }
+
+    $('hasilKontak').innerHTML = '<p class="muted">Mengecek ' + daftarNomor.length + ' nomor...</p>';
+
+    // Cek per 100 nomor supaya permintaan tidak terlalu panjang
+    const temuan = {};
+    for (let i = 0; i < daftarNomor.length; i += 100) {
+      const potongan = daftarNomor.slice(i, i + 100);
+      const { data, error } = await db.from('laporan_nomor').select('nomor, kategori').in('nomor', potongan);
+      if (error) { $('hasilKontak').innerHTML = '<p class="muted">Gagal: ' + aman(error.message) + '</p>'; return; }
+      data.forEach(r => {
+        temuan[r.nomor] = temuan[r.nomor] || {};
+        temuan[r.nomor][r.kategori] = (temuan[r.nomor][r.kategori] || 0) + 1;
+      });
+    }
+
+    const nomorBermasalah = Object.keys(temuan).filter(n =>
+      Object.keys(temuan[n]).some(k => k !== 'aman'));
+
+    if (!nomorBermasalah.length) {
+      $('hasilKontak').innerHTML = '<p class="muted">Dari ' + daftarNomor.length +
+        ' nomor yang dicek, tidak ada yang pernah dilaporkan sebagai spam, penipuan, atau telemarketing.</p>';
+      return;
+    }
+
+    $('hasilKontak').innerHTML =
+      '<p class="muted">' + nomorBermasalah.length + ' dari ' + daftarNomor.length + ' nomor pernah dilaporkan:</p>' +
+      nomorBermasalah.map(n => {
+        const lencana = Object.entries(temuan[n])
+          .filter(([k]) => k !== 'aman')
+          .map(([k, jml]) => '<span class="badge ' + k + '">' + k + ' (' + jml + ')</span>').join(' ');
+        return '<div class="hasil-item"><strong>' + aman(namaPerNomor[n]) + '</strong> ' +
+          '<span class="muted">+' + n + '</span><div>' + lencana + '</div></div>';
+      }).join('');
   };
 
   $('btnLogin').onclick = async () => {
